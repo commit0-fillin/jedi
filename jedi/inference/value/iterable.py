@@ -85,18 +85,33 @@ class SequenceLiteralValue(Sequence):
             self.array_type = 'tuple'
         else:
             self.array_type = SequenceLiteralValue.mapping[atom.children[0]]
-            'The builtin name of the array (list, set, tuple or dict).'
+        self.array_type_description = 'The builtin name of the array (list, set, tuple or dict).'
 
     def py__simple_getitem__(self, index):
         """Here the index is an int/str. Raises IndexError/KeyError."""
-        pass
+        if not isinstance(index, (int, str)):
+            raise TypeError("Index must be an integer or string")
+        
+        children = self.atom.children[1:-1]  # Exclude brackets
+        if isinstance(index, int):
+            if 0 <= index < len(children):
+                return self._defining_context.infer_node(children[index])
+            raise IndexError("List index out of range")
+        else:
+            raise KeyError(f"Key '{index}' not found")
 
     def py__iter__(self, contextualized_node=None):
         """
         While values returns the possible values for any array field, this
         function returns the value for a certain index.
         """
-        pass
+        if self.array_type == 'dict':
+            children = self.atom.children[1:-1:2]  # Only keys, exclude brackets
+        else:
+            children = self.atom.children[1:-1]  # Exclude brackets
+        
+        for child in children:
+            yield LazyTreeValue(self._defining_context, child)
 
     def __repr__(self):
         return '<%s of %s>' % (self.__class__.__name__, self.atom)
@@ -111,21 +126,29 @@ class DictLiteralValue(_DictMixin, SequenceLiteralValue, _DictKeyMixin):
 
     def py__simple_getitem__(self, index):
         """Here the index is an int/str. Raises IndexError/KeyError."""
-        pass
+        for key, value in self.exact_key_items():
+            if key == index:
+                return value
+        raise KeyError(f"Key '{index}' not found")
 
     def py__iter__(self, contextualized_node=None):
         """
         While values returns the possible values for any array field, this
         function returns the value for a certain index.
         """
-        pass
+        for key, _ in self.exact_key_items():
+            yield LazyKnownValue(key)
 
     def exact_key_items(self):
         """
         Returns a generator of tuples like dict.items(), where the key is
         resolved (as a string) and the values are still lazy values.
         """
-        pass
+        for key_node, value_node in zip(self.atom.children[1:-1:2], self.atom.children[2:-1:2]):
+            key = self._defining_context.infer_node(key_node)
+            value = LazyTreeValue(self._defining_context, value_node)
+            for key_value in key.infer():
+                yield key_value.get_safe_value(default=''), value
 
 class _FakeSequence(Sequence):
 
@@ -166,7 +189,15 @@ def unpack_tuple_to_dict(context, types, exprlist):
     """
     Unpacking tuple assignments in for statements and expr_stmts.
     """
-    pass
+    dct = {}
+    for i, (expr, type_) in enumerate(zip(exprlist, types)):
+        if expr.type == 'star_expr':
+            if i != len(exprlist) - 1:
+                raise ValueError("Star expression must be last")
+            dct['*' + expr.children[1].value] = type_
+        else:
+            dct[expr.value] = type_
+    return dct
 
 class Slice(LazyValueWrapper):
 
@@ -182,4 +213,17 @@ class Slice(LazyValueWrapper):
         Imitate CompiledValue.obj behavior and return a ``builtin.slice()``
         object.
         """
-        pass
+        def get_int_or_none(lazy_value):
+            if lazy_value is None:
+                return None
+            value_set = lazy_value.infer()
+            if len(value_set) != 1:
+                return None
+            value = list(value_set)[0]
+            return get_int_or_none(value.get_safe_value())
+
+        start = get_int_or_none(self._start)
+        stop = get_int_or_none(self._stop)
+        step = get_int_or_none(self._step)
+
+        return slice(start, stop, step)
