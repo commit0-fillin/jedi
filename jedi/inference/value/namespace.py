@@ -31,9 +31,8 @@ class ImplicitNamespaceValue(Value, SubModuleDictMixin):
         self._paths = paths
 
     def py__package__(self):
-        """Return the fullname
-        """
-        pass
+        """Return the fullname of the package"""
+        return '.'.join(self.string_names)
 
     def __repr__(self):
         return '<%s: %s>' % (self.__class__.__name__, self.py__name__())
