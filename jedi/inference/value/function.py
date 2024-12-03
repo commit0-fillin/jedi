@@ -24,6 +24,7 @@ class LambdaName(AbstractNameDefinition):
     def __init__(self, lambda_value):
         self._lambda_value = lambda_value
         self.parent_context = lambda_value.parent_context
+        self.tree_name = lambda_value.tree_node.name
 
 class FunctionAndClassBase(TreeValue):
     pass
@@ -45,6 +46,10 @@ class MethodValue(FunctionValue):
     def __init__(self, inference_state, class_context, *args, **kwargs):
         super().__init__(inference_state, *args, **kwargs)
         self.class_context = class_context
+        self._class_filter = ParserTreeFilter(
+            parent_context=class_context,
+            node_context=self
+        )
 
 class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
 
@@ -52,7 +57,15 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
         """
         Created to be used by inheritance.
         """
-        pass
+        function_execution = self.function_execution
+        if function_execution.is_generator:
+            return ValueSet([iterable.Generator(self.inference_state, function_execution)])
+        else:
+            return_node = function_execution.tree_node.get_return_stmt()
+            if return_node is not None:
+                return self.infer_node(return_node.get_testlist())
+            else:
+                return ValueSet([compiled.builtin_from_name(self.inference_state, 'None')])
 
 class FunctionExecutionContext(BaseFunctionExecutionContext):
 
