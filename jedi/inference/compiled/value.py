@@ -107,7 +107,31 @@ class CompiledValueFilter(AbstractFilter):
         """
         To remove quite a few access calls we introduced the callback here.
         """
-        pass
+        access_handle = self.compiled_value.access_handle
+        
+        if check_has_attribute:
+            try:
+                access_handle.getattr_paths(name)
+            except AttributeError:
+                return []
+
+        if name in access_handle.dir():
+            if in_dir_callback() is False:
+                return []
+        else:
+            if not access_handle.has_iter():
+                if allowed_getattr_callback() is False:
+                    return []
+
+        try:
+            return [CompiledName(
+                self._inference_state,
+                self.compiled_value,
+                name,
+                access_handle.is_descriptor(name)
+            )]
+        except AttributeError:
+            return []
 
     def __repr__(self):
         return '<%s: %s>' % (self.__class__.__name__, self.compiled_value)
@@ -121,8 +145,40 @@ def _parse_function_doc(doc):
     TODO docstrings like utime(path, (atime, mtime)) and a(b [, b]) -> None
     TODO docstrings like 'tuple of integers'
     """
-    pass
+    if doc is None:
+        return [], None
+
+    doc = doc.strip()
+    
+    # Try to parse the first line for parameters and return type
+    first_line = doc.split('\n')[0]
+    param_str, _, return_str = first_line.partition('->')
+    
+    # Parse parameters
+    params = []
+    if '(' in param_str and ')' in param_str:
+        param_str = param_str[param_str.index('(') + 1:param_str.rindex(')')]
+        for param in param_str.split(','):
+            param = param.strip()
+            if param:
+                param_name = param.split(':')[0].strip()
+                params.append(param_name)
+    
+    # Parse return type
+    return_type = None
+    if return_str:
+        return_str = return_str.strip()
+        for key, value in docstr_defaults.items():
+            if key in return_str.lower():
+                return_type = value
+                break
+        if return_type is None and return_str != 'None':
+            return_type = return_str
+    
+    return params, return_type
 
 def _normalize_create_args(func):
     """The cache doesn't care about keyword vs. normal args."""
-    pass
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
