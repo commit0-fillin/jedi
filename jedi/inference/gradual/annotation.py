@@ -27,7 +27,25 @@ def infer_annotation(context, annotation):
 
     Also checks for forward references (strings)
     """
-    pass
+    from jedi.inference.gradual.typing import GenericClass
+
+    def infer():
+        if annotation.type == 'string':
+            annotation_str = context.inference_state.compiled_subprocess.safe_literal_eval(annotation.value)
+            return context.inference_state.parse_and_infer(
+                annotation_str,
+                context=context,
+                node=annotation
+            ).execute_annotation()
+        else:
+            return context.infer_node(annotation)
+
+    value_set = infer()
+    if len(value_set) == 1:
+        value, = value_set
+        if isinstance(value, GenericClass):
+            return value.define_generics(value.get_generics())
+    return value_set
 
 def _split_comment_param_declaration(decl_text):
     """
@@ -38,13 +56,41 @@ def _split_comment_param_declaration(decl_text):
     ['foo', 'Bar[baz, biz]'].
 
     """
-    pass
+    params = []
+    try:
+        # Allow splitting by commas and parentheses, but only on the
+        # top level.
+        node = parse(decl_text, version='3.7').children[0]
+        if node.type == 'operator' or node.type == 'atom':
+            return [decl_text]
+
+        for param in node.children:
+            if param.type in ('atom', 'atom_expr'):
+                params.append(param.get_code().strip())
+    except ParserSyntaxError:
+        # If it's not parseable, we just return the original text.
+        # This is not perfect but at least it doesn't crash.
+        return [decl_text]
+    return params
 
 def _infer_param(function_value, param):
     """
     Infers the type of a function parameter, using type annotations.
     """
-    pass
+    annotation = param.annotation
+    if annotation is None:
+        # Check for annotations in comments
+        annotation_comment = param.annotation_string
+        if annotation_comment is not None:
+            annotation_comment = annotation_comment.lstrip('(').rstrip(')')
+            return infer_annotation(function_value.parent_context, annotation_comment)
+        return NO_VALUES
+
+    if annotation.type == 'lambdef':
+        # Lambdas are allowed to have annotations, but they are not required to.
+        return NO_VALUES
+
+    return infer_annotation(function_value.parent_context, annotation)
 
 @inference_state_method_cache()
 def infer_return_types(function, arguments):
@@ -52,7 +98,31 @@ def infer_return_types(function, arguments):
     Infers the type of a function's return value,
     according to type annotations.
     """
-    pass
+    annotation = function.tree_node.annotation
+    if annotation is None:
+        # Check for return annotation in function comment
+        comment = clean_scope_docstring(function.tree_node)
+        match = re.search(r'^:return:(.+)$', comment, re.M)
+        if match:
+            annotation_string = match.group(1).strip()
+            annotation = parse(annotation_string, version='3.7').children[0]
+
+    if annotation is None:
+        return NO_VALUES
+
+    context = function.get_default_param_context()
+    inferred_annotation = infer_annotation(context, annotation)
+
+    if function.is_coroutine():
+        from jedi.inference.gradual.typing import GenericClass
+        from jedi.inference.compiled import builtin_from_name
+        coroutine = builtin_from_name(context.inference_state, 'coroutine')
+        return ValueSet([GenericClass(
+            coroutine,
+            generics=(inferred_annotation,)
+        )])
+
+    return inferred_annotation
 
 def infer_type_vars_for_execution(function, arguments, annotation_dict):
     """
@@ -64,7 +134,26 @@ def infer_type_vars_for_execution(function, arguments, annotation_dict):
     2. Infer type vars with the execution state we have.
     3. Return the union of all type vars that have been found.
     """
-    pass
+    from jedi.inference.gradual.typing import BaseTypingValue
+    from jedi.inference.gradual.type_var import TypeVar
+
+    found_type_vars = {}
+    executed_param_names = get_executed_param_names(function, arguments)
+
+    for executed_param_name in executed_param_names:
+        p_name = executed_param_name.string_name
+        annotation = annotation_dict.get(p_name)
+        if annotation is not None:
+            annotation_values = annotation.infer()
+            for annotation_value in annotation_values:
+                if isinstance(annotation_value, BaseTypingValue):
+                    type_var_dict = annotation_value.infer_type_vars(executed_param_name.infer())
+                    for type_var_name, values in type_var_dict.items():
+                        if type_var_name not in found_type_vars:
+                            found_type_vars[type_var_name] = NO_VALUES
+                        found_type_vars[type_var_name] |= values
+
+    return found_type_vars
 
 def _infer_type_vars_for_callable(arguments, lazy_params):
     """
@@ -72,7 +161,14 @@ def _infer_type_vars_for_callable(arguments, lazy_params):
 
         def x() -> Callable[[Callable[..., _T]], _T]: ...
     """
-    pass
+    from jedi.inference.gradual.typing import TypeVar
+
+    type_var_dict = {}
+    for executed_param, lazy_param in zip(arguments.unpack(), lazy_params):
+        if isinstance(lazy_param, TypeVar):
+            type_var_dict[lazy_param.name] = executed_param.infer()
+
+    return type_var_dict
 
 def merge_pairwise_generics(annotation_value, annotated_argument_class):
     """
@@ -108,4 +204,14 @@ def merge_pairwise_generics(annotation_value, annotated_argument_class):
     `annotated_argument_class`: represents the annotated class of the
         argument being passed to the object annotated by `annotation_value`.
     """
-    pass
+    from jedi.inference.gradual.typing import GenericClass, TypeVar
+
+    if not isinstance(annotation_value, GenericClass):
+        return {}
+
+    type_var_dict = {}
+    for annotation_param, argument_param in zip(annotation_value.get_generics(), annotated_argument_class.get_generics()):
+        if isinstance(annotation_param, TypeVar):
+            type_var_dict[annotation_param.name] = argument_param
+
+    return type_var_dict
