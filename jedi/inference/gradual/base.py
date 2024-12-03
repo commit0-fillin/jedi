@@ -21,6 +21,9 @@ class _BoundTypeVarName(AbstractNameDefinition):
     def __repr__(self):
         return '<%s %s -> %s>' % (self.__class__.__name__, self.py__name__(), self._value_set)
 
+    def py__name__(self):
+        return self._type_var.py__name__()
+
 class _TypeVarFilter:
     """
     A filter for all given variables in a class.
@@ -36,6 +39,7 @@ class _TypeVarFilter:
     def __init__(self, generics, type_vars):
         self._generics = generics
         self._type_vars = type_vars
+        self._tuple_mapping = dict(zip(self._type_vars, self._generics))
 
 class _AnnotatedClassContext(ClassContext):
     pass
@@ -43,10 +47,14 @@ class _AnnotatedClassContext(ClassContext):
 class DefineGenericBaseClass(LazyValueWrapper):
 
     def __init__(self, generics_manager):
+        super().__init__(None)  # LazyValueWrapper requires an argument
         self._generics_manager = generics_manager
 
     def __repr__(self):
         return '<%s: %s%s>' % (self.__class__.__name__, self._wrapped_value, list(self.get_generics()))
+
+    def get_generics(self):
+        return self._generics_manager.to_tuple()
 
 class GenericClass(DefineGenericBaseClass, ClassMixin):
     """
@@ -91,6 +99,9 @@ class _PseudoTreeNameClass(Value):
 
     def __repr__(self):
         return '%s(%s)' % (self.__class__.__name__, self._tree_name.value)
+
+    def get_qualified_names(self):
+        return (self._tree_name.value,)
 
 class BaseTypingValue(LazyValueWrapper):
 
