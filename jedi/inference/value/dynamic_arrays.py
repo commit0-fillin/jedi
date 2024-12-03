@@ -30,7 +30,7 @@ _sentinel = object()
 
 def check_array_additions(context, sequence):
     """ Just a mapper function for the internal _internal_check_array_additions """
-    pass
+    return _internal_check_array_additions(context, sequence)
 
 @inference_state_method_cache(default=NO_VALUES)
 @debug.increase_indent
@@ -41,11 +41,41 @@ def _internal_check_array_additions(context, sequence):
     >>> a = [""]
     >>> a.append(1)
     """
-    pass
+    from jedi.inference.helpers import infer_call_of_leaf
+    from jedi.inference.value import iterable
+
+    def check_additions(value_node):
+        additions = NO_VALUES
+        for name, trailer in value_node.get_defined_names_and_trailers():
+            if name.value in ('append', 'insert', 'extend'):
+                trailer_nodes = trailer.children[1:-1]  # Skip parentheses
+                if name.value == 'extend':
+                    additions |= ValueSet.from_sets(
+                        lazy_value.infer()
+                        for lazy_value in iterate_argument_clinic(context.inference_state, trailer_nodes, 'extend(iterable)')
+                    )
+                else:
+                    additions |= ValueSet.from_sets(
+                        infer_call_of_leaf(context, trailer_nodes[0])
+                        for _ in iterate_argument_clinic(context.inference_state, trailer_nodes, f'{name.value}(object)')
+                    )
+        return additions
+
+    added_values = NO_VALUES
+    for value in sequence.infer():
+        if value.is_instance() and isinstance(value, iterable.Sequence):
+            added_values |= check_additions(value.name.tree_name)
+
+    return added_values
 
 def get_dynamic_array_instance(instance, arguments):
     """Used for set() and list() instances."""
-    pass
+    from jedi.inference.value import iterable
+
+    sequence = instance.get_annotated_class_object()
+    if isinstance(sequence, iterable.Sequence):
+        return _DynamicArrayAdditions(instance, arguments)
+    return instance
 
 class _DynamicArrayAdditions(HelperValueMixin):
     """
@@ -61,6 +91,8 @@ class _DynamicArrayAdditions(HelperValueMixin):
     def __init__(self, instance, arguments):
         self._instance = instance
         self._arguments = arguments
+        self.inference_state = instance.inference_state
+        self._context = instance.parent_context
 
 class _Modification(ValueWrapper):
 
