@@ -12,7 +12,16 @@ from jedi.inference.cache import inference_state_as_method_param_cache
 
 def try_iter_content(types, depth=0):
     """Helper method for static analysis."""
-    pass
+    if depth > 10:
+        # Prevent infinite recursion
+        return
+    
+    for typ in types:
+        try:
+            for lazy_value in typ.py__iter__():
+                yield from try_iter_content(lazy_value.infer(), depth + 1)
+        except AttributeError:
+            yield typ
 
 class ParamIssue(Exception):
     pass
@@ -28,11 +37,50 @@ def repack_with_argument_clinic(clinic_string):
         str.split.__text_signature__
         # Results in: '($self, /, sep=None, maxsplit=-1)'
     """
-    pass
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Parse the clinic string
+            params = re.findall(r'(\w+)(?:=([^,\)]+))?', clinic_string)
+            
+            # Repack arguments according to the clinic string
+            new_args = []
+            new_kwargs = {}
+            
+            for i, (param, default) in enumerate(params):
+                if i < len(args):
+                    new_args.append(args[i])
+                elif param in kwargs:
+                    new_kwargs[param] = kwargs[param]
+                elif default:
+                    new_kwargs[param] = eval(default)
+                else:
+                    raise TypeError(f"Missing required argument: {param}")
+            
+            return func(*new_args, **new_kwargs)
+        return wrapper
+    return decorator
 
 def iterate_argument_clinic(inference_state, arguments, clinic_string):
     """Uses a list with argument clinic information (see PEP 436)."""
-    pass
+    params = re.findall(r'(\w+)(?:=([^,\)]+))?', clinic_string)
+    arg_iterator = PushBackIterator(arguments)
+
+    for param, default in params:
+        try:
+            arg = next(arg_iterator)
+            yield param, LazyTreeValue(inference_state, arg)
+        except StopIteration:
+            if default:
+                yield param, LazyKnownValue(eval(default))
+            else:
+                raise ParamIssue(f"Missing required argument: {param}")
+
+    # Check for extra arguments
+    try:
+        extra = next(arg_iterator)
+        raise ParamIssue(f"Too many arguments provided. Unexpected: {extra}")
+    except StopIteration:
+        pass
 
 class _AbstractArgumentsMixin:
     pass
