@@ -120,6 +120,9 @@ class _ValueWrapperBase(HelperValueMixin):
 
 class LazyValueWrapper(_ValueWrapperBase):
 
+    def __init__(self, inference_state):
+        self.inference_state = inference_state
+
     def __repr__(self):
         return '<%s>' % self.__class__.__name__
 
@@ -127,6 +130,8 @@ class ValueWrapper(_ValueWrapperBase):
 
     def __init__(self, wrapped_value):
         self._wrapped_value = wrapped_value
+        self.inference_state = wrapped_value.inference_state
+        self.parent_context = wrapped_value.parent_context
 
     def __repr__(self):
         return '%s(%s)' % (self.__class__.__name__, self._wrapped_value)
@@ -136,9 +141,19 @@ class TreeValue(Value):
     def __init__(self, inference_state, parent_context, tree_node):
         super().__init__(inference_state, parent_context)
         self.tree_node = tree_node
+        self._value_cache = {}
 
     def __repr__(self):
         return '<%s: %s>' % (self.__class__.__name__, self.tree_node)
+
+    def get_value(self, name):
+        if name not in self._value_cache:
+            self._value_cache[name] = self._infer_value(name)
+        return self._value_cache[name]
+
+    def _infer_value(self, name):
+        # This method should be implemented in subclasses
+        raise NotImplementedError
 
 class ContextualizedNode:
 
