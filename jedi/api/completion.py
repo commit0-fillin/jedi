@@ -177,4 +177,22 @@ def _complete_getattr(user_context, instance):
     will write it like this anyway and the other ones, well they are just
     out of luck I guess :) ~dave.
     """
-    pass
+    name_context = instance.get_function_slot_names(u'__getattr__')
+    if not name_context:
+        return NO_VALUES
+
+    return_stmt = name_context[0].tree_name.get_definition().get_return_stmt()
+    if return_stmt is None:
+        return NO_VALUES
+
+    getattr_call = return_stmt.get_rhs()
+    if not isinstance(getattr_call, tree.Name) or getattr_call.value != 'getattr':
+        return NO_VALUES
+
+    arguments = getattr_call.get_next_sibling()
+    if arguments is None or arguments.type != 'trailer' or len(arguments.children) != 3:
+        return NO_VALUES
+
+    # Now we need to get the first argument
+    first_arg = arguments.children[1].children[0]
+    return user_context.infer_node(first_arg)
