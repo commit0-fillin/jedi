@@ -21,7 +21,15 @@ class AbstractContext:
         """
         :param position: Position of the last statement -> tuple of line, column
         """
-        pass
+        if isinstance(name_or_str, str):
+            name = name_or_str
+        else:
+            name = name_or_str.value
+
+        if name in self.predefined_names:
+            return self.predefined_names[name]
+
+        return NO_VALUES
 
 class ValueContext(AbstractContext):
     """
@@ -33,7 +41,7 @@ class ValueContext(AbstractContext):
         self._value = value
 
     def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self._value)
+        return f'{self.__class__.__name__}({self._value!r})'
 
 class TreeContextMixin:
     pass
@@ -49,7 +57,7 @@ class ModuleContext(TreeContextMixin, ValueContext):
         This is necessary for stub -> python conversion and vice versa. However
         this method shouldn't be moved to AbstractContext.
         """
-        pass
+        return self._value
 
 class NamespaceContext(TreeContextMixin, ValueContext):
     pass
@@ -65,7 +73,7 @@ class CompForContext(TreeContextMixin, AbstractContext):
         self.parent_context = parent_context
 
     def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self.tree_node)
+        return f'{self.__class__.__name__}({self.tree_node!r})'
 
 class CompiledContext(ValueContext):
     pass
@@ -120,4 +128,33 @@ def get_global_filters(context, until_position, origin_scope):
     >>> list(filters[3].values())  # doctest: +ELLIPSIS
     [...]
     """
-    pass
+    def yield_filters():
+        while context is not None:
+            if isinstance(context, FunctionContext):
+                yield MergedFilter(
+                    ParserTreeFilter(
+                        context,
+                        until_position=until_position,
+                        origin_scope=origin_scope
+                    ),
+                    GlobalNameFilter(context),
+                )
+            elif isinstance(context, ClassContext):
+                yield ParserTreeFilter(
+                    context,
+                    until_position=until_position,
+                    origin_scope=origin_scope
+                )
+            elif isinstance(context, ModuleContext):
+                yield MergedFilter(
+                    ParserTreeFilter(
+                        context,
+                        until_position=until_position,
+                        origin_scope=origin_scope
+                    ),
+                    GlobalNameFilter(context),
+                )
+                yield context.inference_state.builtins_module.as_context().get_global_filter()
+            context = context.parent_context
+
+    yield from yield_filters()
