@@ -51,7 +51,7 @@ class TypeAlias(LazyValueWrapper):
         self._actual = actual
 
     def __repr__(self):
-        return '<%s: %s>' % (self.__class__.__name__, self._actual)
+        return f'<{self.__class__.__name__}: {self._actual}>'
 
 class Callable(BaseTypingInstance):
 
@@ -59,7 +59,8 @@ class Callable(BaseTypingInstance):
         """
             def x() -> Callable[[Callable[..., _T]], _T]: ...
         """
-        pass
+        # Since we can't access _T directly, we'll return a generic result
+        return ValueSet([self.inference_state.builtins_module.py__getattribute__('object')])
 
 class Tuple(BaseTypingInstance):
     pass
