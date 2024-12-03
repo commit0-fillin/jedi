@@ -30,7 +30,15 @@ def get_user_context(module_context, position):
     """
     Returns the scope in which the user resides. This includes flows.
     """
-    pass
+    leaf = module_context.tree_node.get_leaf_for_position(position)
+    if leaf is None:
+        return None
+
+    parent_scope = get_parent_scope(leaf)
+    if parent_scope is None:
+        return module_context
+
+    return module_context.create_context(parent_scope)
 
 class Completion:
 
@@ -58,13 +66,56 @@ class Completion:
         - In args: */**: no completion
         - In params (also lambda): no completion before =
         """
-        pass
+        user_context = get_user_context(self._module_context, self._original_position)
+        if user_context is None:
+            return []
+
+        parser_stack = get_stack_at_position(
+            self._inference_state.grammar,
+            self._code_lines,
+            leaf,
+            self._original_position
+        )
+
+        completion_names = []
+        for stack_node in reversed(parser_stack):
+            if stack_node in ['import_stmt', 'import_from']:
+                completion_names = self._complete_import(leaf)
+                break
+            elif stack_node == 'trailer':
+                completion_names = self._complete_trailer(leaf)
+                break
+            elif stack_node in ['atom_expr', 'power']:
+                completion_names = self._complete_power(leaf)
+                break
+
+        if not completion_names:
+            completion_names = self._complete_global_scope(leaf)
+
+        return completion_names
 
     def _complete_inherited(self, is_function=True):
         """
         Autocomplete inherited methods when overriding in child class.
         """
-        pass
+        leaf = self._module_node.get_leaf_for_position(self._original_position)
+        cls = search_ancestor(leaf, 'classdef')
+        if cls is None:
+            return []
+
+        class_value = self._module_context.create_value(cls)
+        if not class_value.is_class():
+            return []
+
+        names = []
+        for base in class_value.py__bases__():
+            if is_function:
+                names.extend(base.get_function_names())
+            else:
+                names.extend(base.get_property_names())
+
+        return [Completion(self._inference_state, n, stack=None, like_name_length=0, is_fuzzy=False)
+                for n in names]
 
     def _complete_in_string(self, start_leaf, string):
         """
@@ -76,7 +127,34 @@ class Completion:
         - Having some doctest code that starts with `>>>`
         - Having backticks that doesn't have whitespace inside it
         """
-        pass
+        match = _string_start.match(string)
+        if match is None:
+            return []
+
+        string = string[match.end():]
+        lines = string.splitlines()
+        if not lines:
+            return []
+
+        if lines[-1].startswith('>>>'):
+            # Doctest
+            code = '\n'.join(lines)
+        elif len(lines) > 1 and lines[0].strip() and not lines[0].lstrip().startswith('>>>'):
+            # Indented block of code
+            code = textwrap.dedent('\n'.join(lines))
+        else:
+            # Try to find backticks that don't contain a space
+            for line in lines:
+                match = re.search(r'`([^`\s]+`)', line)
+                if match is not None:
+                    code = match.group(1)
+                    break
+            else:
+                return []
+
+        module = self._inference_state.parse(code)
+        module_context = self._module_context.create_context(module)
+        return self._complete_python(module.get_last_leaf())
 _string_start = re.compile('^\\w*(\\\'{3}|"{3}|\\\'|")')
 
 def _complete_getattr(user_context, instance):
