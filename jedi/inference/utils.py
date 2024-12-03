@@ -2,6 +2,7 @@
 import functools
 import re
 import os
+import sys
 _sep = os.path.sep
 if os.path.altsep is not None:
     _sep += os.path.altsep
@@ -10,7 +11,7 @@ del _sep
 
 def unite(iterable):
     """Turns a two dimensional array into a one dimensional."""
-    pass
+    return [item for sublist in iterable for item in sublist]
 
 class UncaughtAttributeError(Exception):
     """
@@ -40,7 +41,13 @@ def reraise_uncaught(func):
     `AttributeError` to `UncaughtAttributeError` to avoid unexpected catch.
     This helps us noticing bugs earlier and facilitates debugging.
     """
-    pass
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except AttributeError as e:
+            raise UncaughtAttributeError(sys.exc_info()) from e
+    return wrapper
 
 class PushBackIterator:
 
