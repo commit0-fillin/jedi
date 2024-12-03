@@ -57,7 +57,9 @@ class BaseName:
         """
         Shows the file path of a module. e.g. ``/usr/lib/python3.9/os.py``
         """
-        pass
+        if self._name.is_stub():
+            return None
+        return self._name.get_defining_module().py__file__()
 
     @property
     def name(self):
@@ -68,7 +70,7 @@ class BaseName:
 
         :rtype: str or None
         """
-        pass
+        return self._name.string_name
 
     @property
     def type(self):
@@ -127,7 +129,13 @@ class BaseName:
         ``param``, ``path``, ``keyword``, ``property`` and ``statement``.
 
         """
-        pass
+        if isinstance(self._name, ImportName):
+            return 'module'
+        definition = self._name.get_definition()
+        if definition is None:
+            return None
+
+        return self._API_TYPES.get(definition.type, 'statement')
 
     @property
     def module_name(self):
@@ -472,7 +480,7 @@ class Name(BaseName):
 
         :rtype: list of :class:`Name`
         """
-        pass
+        return defined_names(self._inference_state, self._value)
 
     def is_definition(self):
         """
