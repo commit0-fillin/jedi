@@ -19,6 +19,10 @@ class LazyGenericManager(_AbstractGenericManager):
         self._index_value = index_value
 
     @memoize_method
+    def _tuple(self):
+        return tuple(self._context_of_index.infer_node(self._index_value))
+
+    @memoize_method
     def __getitem__(self, index):
         return self._tuple()[index]()
 
@@ -27,6 +31,9 @@ class LazyGenericManager(_AbstractGenericManager):
 
     def __repr__(self):
         return '<LazyG>[%s]' % ', '.join((repr(x) for x in self.to_tuple()))
+
+    def to_tuple(self):
+        return self._tuple()
 
 class TupleGenericManager(_AbstractGenericManager):
 
@@ -41,3 +48,6 @@ class TupleGenericManager(_AbstractGenericManager):
 
     def __repr__(self):
         return '<TupG>[%s]' % ', '.join((repr(x) for x in self.to_tuple()))
+
+    def to_tuple(self):
+        return self._tuple
