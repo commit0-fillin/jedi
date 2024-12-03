@@ -27,7 +27,25 @@ class HelperValueMixin:
         """
         :param position: Position of the last statement -> tuple of line, column
         """
-        pass
+        if isinstance(name_or_str, str):
+            name = name_or_str
+        else:
+            name = name_or_str.value
+
+        if name_context is None:
+            name_context = self.parent_context
+
+        try:
+            return self._get_attribute(name, name_context, position, analysis_errors)
+        except AttributeError:
+            if analysis_errors:
+                self.inference_state.analysis.add(
+                    'attribute-error',
+                    name_context,
+                    position,
+                    message="Attribute '%s' not found" % name
+                )
+            return NO_VALUES
 
 class Value(HelperValueMixin):
     """
@@ -46,13 +64,13 @@ class Value(HelperValueMixin):
         Since Wrapper is a super class for classes, functions and modules,
         the return value will always be true.
         """
-        pass
+        return True
 
     def py__getattribute__alternatives(self, name_or_str):
         """
         For now a way to add values in cases like __getattr__.
         """
-        pass
+        return NO_VALUES
 
     def infer_type_vars(self, value_set):
         """
@@ -81,14 +99,18 @@ class Value(HelperValueMixin):
             above example this would first be the representation of the list
             `[1]` and then, when recursing, just of `1`.
         """
-        pass
+        return {}
 
 def iterate_values(values, contextualized_node=None, is_async=False):
     """
     Calls `iterate`, on all values but ignores the ordering and just returns
     all values that the iterate functions yield.
     """
-    pass
+    return ValueSet.from_sets(
+        value.iterate(contextualized_node, is_async)
+        for value in values
+        if value.is_instance()
+    )
 
 class _ValueWrapperBase(HelperValueMixin):
 
@@ -139,7 +161,7 @@ class ValueSet:
         """
         Used to work with an iterable of set.
         """
-        pass
+        return cls(set().union(*sets))
 
     def __or__(self, other):
         return self._from_frozen_set(self._set | other._set)
