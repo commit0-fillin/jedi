@@ -16,7 +16,36 @@ def _memoize_default(default=_NO_DEFAULT, inference_state_is_first_arg=False, se
     don't think, that there is a big speed difference, but there are many cases
     where recursion could happen (think about a = b; b = a).
     """
-    pass
+    def func(function):
+        def wrapper(*args, **kwargs):
+            if inference_state_is_first_arg:
+                inference_state = args[0]
+            elif second_arg_is_inference_state:
+                inference_state = args[1]
+            else:
+                inference_state = None
+
+            key = (function, args, frozenset(kwargs.items()))
+            if inference_state is not None:
+                cache = inference_state.memoize_cache
+            else:
+                cache = function.__dict__.setdefault('_memoize_default_cache', {})
+
+            if key in cache:
+                return cache[key]
+
+            if key in cache:
+                return cache[key]
+
+            if default is not _NO_DEFAULT:
+                cache[key] = default
+
+            result = function(*args, **kwargs)
+            if default is _NO_DEFAULT or result is not default:
+                cache[key] = result
+            return result
+        return wrapper
+    return func
 
 class CachedMetaClass(type):
     """
@@ -34,4 +63,26 @@ def inference_state_method_generator_cache():
     This is a special memoizer. It memoizes generators and also checks for
     recursion errors and returns no further iterator elemends in that case.
     """
-    pass
+    def decorator(func):
+        @wraps(func)
+        def wrapper(inference_state, *args, **kwargs):
+            key = (func, args, frozenset(kwargs.items()))
+            cache = inference_state.memoize_cache
+            if key in cache:
+                return cache[key]
+
+            generator = func(inference_state, *args, **kwargs)
+            cache[key] = _RECURSION_SENTINEL
+
+            def memoized_generator():
+                try:
+                    for result in generator:
+                        yield result
+                        cache[key] = (yield from memoized_generator())
+                except RecursionError:
+                    debug.warning('RecursionError in %s', func)
+
+            cache[key] = memoized_generator()
+            return cache[key]
+        return wrapper
+    return decorator
