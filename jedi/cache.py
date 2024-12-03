@@ -25,7 +25,10 @@ def clear_time_caches(delete_all: bool=False) -> None:
     :param delete_all: Deletes also the cache that is normally not deleted,
         like parser cache, which is important for faster parsing.
     """
-    pass
+    global _time_caches
+    _time_caches.clear()
+    if delete_all:
+        parser_cache.clear()
 
 def signature_time_cache(time_add_setting):
     """
@@ -36,8 +39,40 @@ def signature_time_cache(time_add_setting):
 
     If the given key is None, the function will not be cached.
     """
-    pass
+    def decorator(func):
+        @wraps(func)
+        def wrapper(key_func, *args, **kwargs):
+            key = key_func(*args, **kwargs)
+            if key is None:
+                return func(*args, **kwargs)
+
+            cache = _time_caches.setdefault(func.__name__, {})
+            current_time = time.time()
+            if key in cache:
+                expiry, value = cache[key]
+                if current_time < expiry:
+                    return value
+
+            value = func(*args, **kwargs)
+            expiry = current_time + getattr(settings, time_add_setting)
+            cache[key] = (expiry, value)
+            return value
+        return wrapper
+    return decorator
 
 def memoize_method(method):
     """A normal memoize function."""
-    pass
+    cache_name = '_cache_' + method.__name__
+
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if not hasattr(self, cache_name):
+            setattr(self, cache_name, {})
+        cache = getattr(self, cache_name)
+
+        key = (args, frozenset(kwargs.items()))
+        if key not in cache:
+            cache[key] = method(self, *args, **kwargs)
+        return cache[key]
+
+    return wrapper
