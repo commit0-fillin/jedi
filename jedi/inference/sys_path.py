@@ -83,9 +83,9 @@ def check_sys_path_modifications(module_context):
 
 def _get_buildout_script_paths(search_path: Path):
     """
-    if there is a 'buildout.cfg' file in one of the parent directories of the
-    given module it will return a list of all files in the buildout bin
-    directory that look like python files.
+    If there is a 'buildout.cfg' file in one of the parent directories of the
+    given module, it will return a list of all files in the buildout bin
+    directory that look like Python files.
 
     :param search_path: absolute path to the module.
     """
@@ -96,7 +96,7 @@ def _get_buildout_script_paths(search_path: Path):
             if bin_path.is_dir():
                 return [
                     str(p) for p in bin_path.iterdir()
-                    if p.is_file() and p.suffix in ('.py', '') and p.stem != 'buildout'
+                    if p.is_file() and (p.suffix == '.py' or not p.suffix) and p.stem != 'buildout'
                 ]
         if parent == parent.parent:
             break
