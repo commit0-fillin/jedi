@@ -31,7 +31,19 @@ class SubModuleDictMixin:
         Lists modules in the directory of this module (if this module is a
         package).
         """
-        pass
+        if not self._is_package:
+            return {}
+
+        path = self.py__path__()
+        if path is None:
+            return {}
+
+        names = {}
+        for name in os.listdir(path[0]):
+            if name.endswith('.py') or os.path.isdir(os.path.join(path[0], name)):
+                module_name = name.rsplit('.', 1)[0]
+                names[module_name] = SubModuleName(self.as_context(), module_name)
+        return names
 
 class ModuleMixin(SubModuleDictMixin):
     _module_name_class = ModuleName
@@ -42,7 +54,7 @@ class ModuleMixin(SubModuleDictMixin):
         it's reachable and not `None`. With this information we can add
         qualified names on top for all value children.
         """
-        pass
+        return tuple(self.string_names)
 
 class ModuleValue(ModuleMixin, TreeValue):
     api_type = 'module'
@@ -62,7 +74,7 @@ class ModuleValue(ModuleMixin, TreeValue):
         """
         In contrast to Python's __file__ can be None.
         """
-        pass
+        return self._path
 
     def py__path__(self):
         """
@@ -70,7 +82,9 @@ class ModuleValue(ModuleMixin, TreeValue):
         is a list of paths (strings).
         Returns None if the module is not a package.
         """
-        pass
+        if self._is_package:
+            return [str(self._path.parent)] if self._path else None
+        return None
 
     def __repr__(self):
         return '<%s: %s@%s-%s is_stub=%s>' % (self.__class__.__name__, self.py__name__(), self.tree_node.start_pos[0], self.tree_node.end_pos[0], self.is_stub())
