@@ -66,4 +66,18 @@ class MixedObjectFilter(compiled.CompiledValueFilter):
 
 def _get_object_to_check(python_object):
     """Check if inspect.getfile has a chance to find the source."""
-    pass
+    if inspect.ismodule(python_object):
+        return python_object
+    if inspect.isclass(python_object):
+        return python_object
+    if inspect.ismethod(python_object):
+        return python_object.__func__
+    if inspect.isfunction(python_object):
+        return python_object
+    if inspect.istraceback(python_object):
+        return python_object.tb_frame
+    if inspect.isframe(python_object):
+        return python_object
+    if inspect.iscode(python_object):
+        return python_object
+    return None
