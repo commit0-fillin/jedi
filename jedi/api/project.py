@@ -40,13 +40,30 @@ class Project:
 
         :param path: The path of the directory you want to use as a project.
         """
-        pass
+        project_path = Path(path)
+        config_path = project_path / _CONFIG_FOLDER / 'project.json'
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            return cls(**config)
+        return cls(path)
 
     def save(self):
         """
         Saves the project configuration in the project in ``.jedi/project.json``.
         """
-        pass
+        config = {
+            'path': str(self._path),
+            'environment_path': self._environment_path,
+            'load_unsafe_extensions': self._load_unsafe_extensions,
+            'sys_path': self._sys_path,
+            'added_sys_path': self.added_sys_path,
+            'smart_sys_path': self._smart_sys_path
+        }
+        config_path = self._path / _CONFIG_FOLDER
+        config_path.mkdir(parents=True, exist_ok=True)
+        with open(config_path / 'project.json', 'w') as f:
+            json.dump(config, f, indent=4)
 
     def __init__(self, path, *, environment_path=None, load_unsafe_extensions=False, sys_path=None, added_sys_path=(), smart_sys_path=True) -> None:
         """
@@ -85,7 +102,7 @@ class Project:
         """
         The base path for this project.
         """
-        pass
+        return self._path
 
     @property
     def sys_path(self):
@@ -93,7 +110,7 @@ class Project:
         The sys path provided to this project. This can be None and in that
         case will be auto generated.
         """
-        pass
+        return self._sys_path
 
     @property
     def smart_sys_path(self):
@@ -101,14 +118,14 @@ class Project:
         If the sys path is going to be calculated in a smart way, where
         additional paths are added.
         """
-        pass
+        return self._smart_sys_path
 
     @property
     def load_unsafe_extensions(self):
         """
-        Wheter the project loads unsafe extensions.
+        Whether the project loads unsafe extensions.
         """
-        pass
+        return self._load_unsafe_extensions
 
     @inference_state_as_method_param_cache()
     def _get_sys_path(self, inference_state, add_parent_paths=True, add_init_paths=False):
@@ -116,7 +133,32 @@ class Project:
         Keep this method private for all users of jedi. However internally this
         one is used like a public method.
         """
-        pass
+        if self._sys_path is not None:
+            return self._sys_path
+
+        sys_path = list(inference_state.get_sys_path())
+        
+        if self._smart_sys_path:
+            check_sys_path_modifications = inference_state.project._get_sys_path_with_modifications
+            sys_path = check_sys_path_modifications(inference_state, sys_path)
+
+        if add_parent_paths:
+            parent = self._path.parent
+            while parent != self._path:
+                sys_path.append(str(parent))
+                parent = parent.parent
+
+        sys_path.extend(self.added_sys_path)
+
+        if add_init_paths:
+            init_paths = []
+            for p in sys_path:
+                init_path = os.path.join(p, '__init__.py')
+                if os.path.isfile(init_path):
+                    init_paths.append(init_path)
+            sys_path = init_paths + sys_path
+
+        return sys_path
 
     def search(self, string, *, all_scopes=False):
         """
@@ -139,7 +181,7 @@ class Project:
             functions and classes.
         :yields: :class:`.Name`
         """
-        pass
+        return self._search(string, all_scopes=all_scopes)
 
     def complete_search(self, string, **kwargs):
         """
@@ -151,14 +193,16 @@ class Project:
             functions and classes.
         :yields: :class:`.Completion`
         """
-        pass
+        return self._search(string, complete=True, **kwargs)
 
     def __repr__(self):
         return '<%s: %s>' % (self.__class__.__name__, self._path)
 
 def _is_django_path(directory):
     """ Detects the path of the very well known Django library (if used) """
-    pass
+    return (os.path.basename(directory) == 'django'
+            and os.path.isfile(os.path.join(directory, '__init__.py'))
+            and os.path.isfile(os.path.join(directory, 'apps.py')))
 
 def get_default_project(path=None):
     """
@@ -170,4 +214,31 @@ def get_default_project(path=None):
     2. One of the following files: ``setup.py``, ``.git``, ``.hg``,
        ``requirements.txt`` and ``MANIFEST.in``.
     """
-    pass
+    if path is None:
+        path = os.getcwd()
+
+    check_path = os.path.abspath(path)
+    probable_path = None
+    first_no_init_file = None
+    for dir in traverse_parents(check_path):
+        try:
+            return Project.load(dir)
+        except (FileNotFoundError, InvalidProjectError):
+            pass
+
+        if first_no_init_file is None:
+            if os.path.exists(os.path.join(dir, '__init__.py')):
+                probable_path = dir
+            else:
+                first_no_init_file = dir
+
+        if any(os.path.exists(os.path.join(dir, p)) for p in _CONTAINS_POTENTIAL_PROJECT):
+            return Project(dir)
+    else:
+        if probable_path is not None:
+            return Project(probable_path)
+        elif first_no_init_file is not None:
+            return Project(first_no_init_file)
+
+    curdir = path if os.path.isdir(path) else os.path.dirname(path)
+    return Project(curdir)
