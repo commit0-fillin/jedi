@@ -16,7 +16,23 @@ def _is_a_pytest_param_and_inherited(param_name):
 
     This is a heuristic and will work in most cases.
     """
-    pass
+    def is_pytest_param(node):
+        if node.type == 'funcdef':
+            # Check if it's a test function
+            if node.name.value.startswith('test_'):
+                return True
+            # Check for pytest.fixture decorator
+            for decorator in node.get_decorators():
+                if decorator.children[1].value == 'pytest' and decorator.children[3].value == 'fixture':
+                    return True
+        return False
+
+    parent = param_name.parent
+    while parent:
+        if is_pytest_param(parent):
+            return True
+        parent = parent.parent
+    return False
 
 def _find_pytest_plugin_modules() -> List[List[str]]:
     """
@@ -24,7 +40,22 @@ def _find_pytest_plugin_modules() -> List[List[str]]:
 
     See https://docs.pytest.org/en/stable/how-to/writing_plugins.html#setuptools-entry-points
     """
-    pass
+    try:
+        import pkg_resources
+    except ImportError:
+        return []
+
+    plugin_modules = []
+    for entry_point in pkg_resources.iter_entry_points('pytest11'):
+        try:
+            module_name = entry_point.module_name
+            if module_name:
+                plugin_modules.append(module_name.split('.'))
+        except Exception:
+            # Skip any entry points that cause errors
+            continue
+
+    return plugin_modules
 
 class FixtureFilter(ParserTreeFilter):
     pass
