@@ -48,7 +48,16 @@ def execution_allowed(inference_state, node):
     A decorator to detect recursions in statements. In a recursion a statement
     at the same place, in the same module may not be executed two times.
     """
-    pass
+    detector = inference_state.recursion_detector
+    if node in detector.pushed_nodes:
+        debug.warning('Recursion detected: %s', node)
+        yield False
+    else:
+        detector.pushed_nodes.append(node)
+        try:
+            yield True
+        finally:
+            detector.pushed_nodes.pop()
 
 class ExecutionRecursionDetector:
     """
