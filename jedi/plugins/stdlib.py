@@ -35,20 +35,60 @@ def argument_clinic(clinic_string, want_value=False, want_context=False, want_ar
     """
     Works like Argument Clinic (PEP 436), to validate function params.
     """
-    pass
+    def decorator(func):
+        def wrapper(value, *args, **kwargs):
+            inference_state = value.inference_state
+            arguments = None
+            context = None
+            if want_arguments:
+                arguments = kwargs.get('arguments', None)
+            if want_context:
+                context = kwargs.get('context', None)
+            
+            try:
+                clinic_args = iterate_argument_clinic(
+                    inference_state, arguments.unpack() if arguments else [], clinic_string
+                )
+                if want_value:
+                    clinic_args = list(clinic_args)
+                    clinic_args.insert(0, ('self', LazyKnownValue(value)))
+                if want_inference_state:
+                    kwargs['inference_state'] = inference_state
+                if want_context:
+                    kwargs['context'] = context
+                if want_arguments:
+                    kwargs['arguments'] = arguments
+                if want_callback:
+                    kwargs['callback'] = lambda value_set: ValueSet.from_sets(
+                        func(value, *[v.infer() for k, v in clinic_args], **kwargs)
+                    )
+                return func(value, *[v.infer() for k, v in clinic_args], **kwargs)
+            except ParamIssue as issue:
+                debug.warning('ParamIssue: %s', issue)
+                return NO_VALUES
+
+        return wrapper
+    return decorator
 
 class SuperInstance(LazyValueWrapper):
     """To be used like the object ``super`` returns."""
 
     def __init__(self, inference_state, instance):
-        self.inference_state = inference_state
+        super().__init__(inference_state)
         self._instance = instance
+        self._class = instance.class_value
+        self._super_class = None
+        for base in self._class.py__bases__():
+            if base != instance.class_value:
+                self._super_class = base
+                break
 
 class ReversedObject(AttributeOverwrite):
 
     def __init__(self, reversed_obj, iter_list):
         super().__init__(reversed_obj)
         self._iter_list = iter_list
+        self._iter_list.reverse()
 
 class StaticMethodObject(ValueWrapper):
     pass
@@ -85,9 +125,37 @@ def collections_namedtuple(value, arguments, callback):
 
     This has to be done by processing the namedtuple class template and
     inferring the result.
-
     """
-    pass
+    from jedi.inference.value import FakeTypedDict
+
+    def execute(params):
+        try:
+            typename, field_names = params
+            if not isinstance(typename, str):
+                return NO_VALUES
+            if isinstance(field_names, str):
+                field_names = field_names.replace(',', ' ').split()
+            elif isinstance(field_names, (list, tuple)):
+                field_names = [str(v) for v in field_names]
+            else:
+                return NO_VALUES
+            
+            class_template = _NAMEDTUPLE_CLASS_TEMPLATE.format(
+                typename=typename,
+                field_names=repr(tuple(field_names)),
+                num_fields=len(field_names),
+                arg_list=repr(tuple(field_names)).replace("'", "")[1:-1],
+                repr_fmt='(' + ', '.join(f'{name}=%r' for name in field_names) + ')',
+                field_defs='\n'.join(_NAMEDTUPLE_FIELD_TEMPLATE.format(index=index, name=name)
+                                     for index, name in enumerate(field_names))
+            )
+            module = value.inference_state.grammar.parse(class_template)
+            generated_class = next(module.iter_classdefs())
+            return ValueSet([value.inference_state.compiled_subprocess.get_or_create_instance(generated_class)])
+        except Exception:
+            return NO_VALUES
+
+    return execute(arguments.unpack())
 
 class PartialObject(ValueWrapper):
 
@@ -95,6 +163,7 @@ class PartialObject(ValueWrapper):
         super().__init__(actual_value)
         self._arguments = arguments
         self._instance = instance
+        self.inference_state = actual_value.inference_state
 
     def py__doc__(self):
         """
@@ -102,7 +171,7 @@ class PartialObject(ValueWrapper):
         imitating it here, because we want this docstring to be worth something
         for the user.
         """
-        pass
+        return self._actual_value.py__doc__()
 
 class PartialMethodObject(PartialObject):
     pass
