@@ -29,7 +29,7 @@ class Error:
         return hash((self.path, self._start_pos, self.name))
 
     def __repr__(self):
-        return '<%s %s: %s@%s,%s>' % (self.__class__.__name__, self.name, self.path, self._start_pos[0], self._start_pos[1])
+        return f'<{self.__class__.__name__} {self.name}: {self.path}@{self._start_pos[0]},{self._start_pos[1]}>'
 
 class Warning(Error):
     pass
@@ -38,7 +38,10 @@ def _check_for_setattr(instance):
     """
     Check if there's any setattr method inside an instance. If so, return True.
     """
-    pass
+    for name, value in instance.get_filters():
+        if name.string_name == 'setattr':
+            return True
+    return False
 
 def _check_for_exception_catch(node_context, jedi_name, exception, payload=None):
     """
@@ -46,6 +49,36 @@ def _check_for_exception_catch(node_context, jedi_name, exception, payload=None)
     doesn't count as an error (if equal to `exception`).
     Also checks `hasattr` for AttributeErrors and uses the `payload` to compare
     it.
-    Returns True if the exception was catched.
+    Returns True if the exception was caught.
     """
-    pass
+    def check_match(except_clause):
+        if except_clause is None:
+            return False
+        except_classes = except_clause.get_except_classes()
+        if not except_classes:
+            return True  # An empty except catches all exceptions
+        for except_class in except_classes:
+            if except_class.name.get_qualified_names() == exception.split('.'):
+                return True
+        return False
+
+    def check_hasattr(node):
+        if isinstance(node, tree.Name) and node.value == 'hasattr':
+            call = node.parent
+            if isinstance(call, tree.PythonNode) and call.type == 'power':
+                args = call.children[1].children[1:-1]
+                if len(args) == 2 and isinstance(args[1], tree.Name):
+                    return args[1].value == payload
+        return False
+
+    current = node_context.tree_node
+    while current is not None:
+        if isinstance(current, tree.TryStmt):
+            for except_clause in current.get_except_clauses():
+                if check_match(except_clause):
+                    return True
+        elif exception == 'AttributeError' and check_hasattr(current):
+            return True
+        current = current.parent
+
+    return False
