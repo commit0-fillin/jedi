@@ -29,7 +29,9 @@ class AbstractNameDefinition:
         Returns either None or the value that is public and qualified. Won't
         return a function, because a name in a function is never public.
         """
-        pass
+        if self.parent_context and not self.parent_context.is_function():
+            return self.parent_context.get_value()
+        return None
 
 class AbstractArbitraryName(AbstractNameDefinition):
     """
@@ -43,6 +45,7 @@ class AbstractArbitraryName(AbstractNameDefinition):
         self.inference_state = inference_state
         self.string_name = string
         self.parent_context = inference_state.builtins_module
+        self.start_pos = None  # AbstractArbitraryName doesn't have a start position
 
 class AbstractTreeName(AbstractNameDefinition):
 
@@ -77,7 +80,25 @@ class TreeNameDefinition(AbstractTreeName):
 
             [(slice(1, -1), abc_node)]
         """
-        pass
+        indexes = []
+        node = self.tree_name.parent
+        while node is not None:
+            if node.type == 'testlist_star_expr' or node.type == 'exprlist':
+                for i, child in enumerate(node.children):
+                    if child == self.tree_name:
+                        indexes.insert(0, (i, node))
+                    elif child.type == 'atom' and self.tree_name in child.children:
+                        indexes.insert(0, (i, node))
+                        indexes.insert(0, (child.children.index(self.tree_name), child))
+            elif node.type == 'atom' and node.children[0] == '[' and node.children[-1] == ']':
+                star_count = sum(1 for c in node.children if c.type == 'star_expr')
+                if star_count == 1:
+                    for i, child in enumerate(node.children):
+                        if child.type == 'star_expr' and self.tree_name in child.children:
+                            indexes.insert(0, (slice(i, -star_count), node))
+                            break
+            node = node.parent
+        return indexes
 
 class _ParamMixin:
     pass
@@ -94,7 +115,7 @@ class ParamNameInterface(_ParamMixin):
         For now however it exists to avoid infering params when we don't really
         need them (e.g. when we can just instead use annotations.
         """
-        pass
+        return self
 
 class BaseTreeParamName(ParamNameInterface, AbstractTreeName):
     annotation_node = None
@@ -133,6 +154,7 @@ class ImportName(AbstractNameDefinition):
     def __init__(self, parent_context, string_name):
         self._from_module_context = parent_context
         self.string_name = string_name
+        self.parent_context = parent_context
 
 class SubModuleName(ImportName):
     _level = 1
@@ -146,7 +168,7 @@ class NameWrapper:
         return getattr(self._wrapped_name, name)
 
     def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self._wrapped_name)
+        return f'{self.__class__.__name__}({self._wrapped_name!r})'
 
 class StubNameMixin:
     pass
@@ -160,6 +182,8 @@ class ModuleName(ValueNameMixin, AbstractNameDefinition):
     def __init__(self, value, name):
         self._value = value
         self._name = name
+        self.string_name = name
+        self.parent_context = value.as_context()
 
 class StubModuleName(StubNameMixin, ModuleName):
     pass
