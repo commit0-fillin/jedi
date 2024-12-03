@@ -21,4 +21,40 @@ def getattr_static(obj, attr, default=_sentinel):
        Returns a tuple `(attr, is_get_descriptor)`. is_get_descripter means that
        the attribute is a descriptor that has a `__get__` attribute.
     """
-    pass
+    instance_dict = {}
+    klass = None
+    if hasattr(obj, '__dict__') and isinstance(obj.__dict__, dict):
+        instance_dict = obj.__dict__
+    if not isinstance(obj, type):
+        klass = type(obj)
+        if klass is object:
+            klass = None
+    
+    # Check if the attribute exists in the instance dictionary
+    if attr in instance_dict:
+        return (instance_dict[attr], False)
+    
+    # Check if the attribute exists in the class or its bases
+    if klass is not None:
+        for base in klass.__mro__:
+            if attr in base.__dict__:
+                value = base.__dict__[attr]
+                if hasattr(value, '__get__'):
+                    return (value, True)
+                return (value, False)
+    
+    # Check if the object itself is a class
+    if isinstance(obj, type):
+        for base in obj.__mro__:
+            if attr in base.__dict__:
+                value = base.__dict__[attr]
+                if hasattr(value, '__get__'):
+                    return (value, True)
+                return (value, False)
+    
+    # If the attribute is not found and a default is provided, return it
+    if default is not _sentinel:
+        return (default, False)
+    
+    # If the attribute is not found and no default is provided, raise AttributeError
+    raise AttributeError(f"'{type(obj).__name__}' object has no attribute '{attr}'")
