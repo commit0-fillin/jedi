@@ -28,19 +28,43 @@ _numpy_doc_string_cache = None
 
 def _search_param_in_numpydocstr(docstr, param_str):
     """Search `docstr` (in numpydoc format) for type(-s) of `param_str`."""
-    pass
+    import re
+    pattern = rf'^{re.escape(param_str)}\s*:\s*(.*?)$'
+    match = re.search(pattern, docstr, re.MULTILINE)
+    if match:
+        type_str = match.group(1).strip()
+        return _expand_typestr(type_str)
+    return []
 
 def _search_return_in_numpydocstr(docstr):
     """
     Search `docstr` (in numpydoc format) for type(-s) of function returns.
     """
-    pass
+    import re
+    pattern = r'^Returns\n.*?-+\n(.*?)(\n\n|\Z)'
+    match = re.search(pattern, docstr, re.MULTILINE | re.DOTALL)
+    if match:
+        return_block = match.group(1)
+        type_pattern = r'(?:^|\n)(.+?)\s*:'
+        types = re.findall(type_pattern, return_block)
+        return [_expand_typestr(t.strip()) for t in types]
+    return []
 
 def _expand_typestr(type_str):
     """
     Attempts to interpret the possible types in `type_str`
     """
-    pass
+    import re
+    types = []
+    for match in re.finditer(r'([^,\s\[]+)(?:\[([^\]]+)\])?', type_str):
+        main_type, sub_type = match.groups()
+        if main_type.lower() == 'or':
+            continue
+        if sub_type:
+            types.append(f"{main_type}[{sub_type}]")
+        else:
+            types.append(main_type)
+    return types
 
 def _search_param_in_docstr(docstr, param_str):
     """
@@ -59,7 +83,17 @@ def _search_param_in_docstr(docstr, param_str):
     ['int']
 
     """
-    pass
+    import re
+    patterns = [
+        rf':type\s+{re.escape(param_str)}:\s*([^\n]+)',
+        rf'@type\s+{re.escape(param_str)}:\s*([^\n]+)',
+        rf':param\s+([^:]+)\s+{re.escape(param_str)}:[^\n]*',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, docstr)
+        if match:
+            return _expand_typestr(_strip_rst_role(match.group(1)))
+    return []
 
 def _strip_rst_role(type_str):
     """
@@ -76,7 +110,11 @@ def _strip_rst_role(type_str):
     http://sphinx-doc.org/domains.html#cross-referencing-python-objects
 
     """
-    pass
+    import re
+    match = re.match(r':[^`]+:`(.+)`', type_str)
+    if match:
+        return match.group(1)
+    return type_str
 
 def _execute_types_in_stmt(module_context, stmt):
     """
@@ -84,11 +122,32 @@ def _execute_types_in_stmt(module_context, stmt):
     doesn't include tuple, list and dict literals, because the stuff they
     contain is executed. (Used as type information).
     """
-    pass
+    from jedi.inference.value import TreeInstance
+    from jedi.inference.gradual.annotation import AnnotatedAnnassign
+    from jedi.inference.gradual.base import GenericClass
+
+    definitions = module_context.infer_node(stmt)
+    return ValueSet(
+        instance
+        for instance in definitions
+        if isinstance(instance, (TreeInstance, GenericClass, AnnotatedAnnassign))
+    )
 
 def _execute_array_values(inference_state, array):
     """
     Tuples indicate that there's not just one return value, but the listed
     ones.  `(str, int)` means that it returns a tuple with both types.
     """
-    pass
+    from jedi.inference.value.iterable import SequenceLiteralValue, FakeTuple
+    from jedi.inference.base_value import ValueSet, NO_VALUES
+
+    if isinstance(array, SequenceLiteralValue):
+        values = ValueSet.from_sets(
+            _execute_array_values(inference_state, v)
+            for v in array.py__iter__()
+        )
+        return ValueSet([FakeTuple(inference_state, values)])
+    elif isinstance(array, (FakeTuple, SequenceLiteralValue)):
+        return ValueSet([array])
+    else:
+        return inference_state.infer(array)
