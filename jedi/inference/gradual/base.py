@@ -67,6 +67,8 @@ class GenericClass(DefineGenericBaseClass, ClassMixin):
     def __init__(self, class_value, generics_manager):
         super().__init__(generics_manager)
         self._class_value = class_value
+        self.inference_state = class_value.inference_state
+        self.parent_context = class_value.parent_context
 
 class _LazyGenericBaseClass:
 
