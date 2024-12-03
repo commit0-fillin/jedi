@@ -43,15 +43,34 @@ class DirectObjectAccess:
         """
         Returns Tuple[Optional[str], Tuple[AccessPath, ...]]
         """
-        pass
+        annotation = getattr(self._obj, '__annotations__', {}).get('return', None)
+        if annotation is None:
+            return None, ()
+        
+        name = getattr(annotation, '__name__', str(annotation))
+        args = []
+        
+        if hasattr(annotation, '__args__'):
+            for arg in annotation.__args__:
+                if isinstance(arg, type):
+                    args.append(AccessPath([arg.__name__]))
+                else:
+                    args.append(AccessPath([str(arg)]))
+        
+        return name, tuple(args)
 
     def get_dir_infos(self):
         """
         Used to return a couple of infos that are needed when accessing the sub
         objects of an objects
         """
-        pass
+        return [
+            (name, getattr_static(self._obj, name))
+            for name in dir(self._obj)
+        ]
 
 def _is_class_instance(obj):
     """Like inspect.* methods."""
-    pass
+    return (not isinstance(obj, type)
+            and not isinstance(type(obj), types.ModuleType)
+            and not isinstance(type(obj), NOT_CLASS_TYPES))
