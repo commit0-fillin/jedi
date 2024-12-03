@@ -55,6 +55,8 @@ class CompiledInstance(AbstractInstanceValue):
     def __init__(self, inference_state, parent_context, class_value, arguments):
         super().__init__(inference_state, parent_context, class_value)
         self._arguments = arguments
+        self.inference_state = inference_state
+        self.parent_context = parent_context
 
 class _BaseTreeInstance(AbstractInstanceValue):
 
