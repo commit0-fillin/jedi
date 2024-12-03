@@ -37,7 +37,26 @@ def get_executed_param_names_and_issues(function_value, arguments):
         c, & d will have their values (42, 'c' and 'd' respectively) included.
       - a list with a single entry about the lack of a value for `b`
     """
-    pass
+    executed_param_names = []
+    issues = []
+    
+    param_names = function_value.get_param_names()
+    
+    for param in param_names:
+        if param.string_name in arguments.unbound_args:
+            value = arguments.unbound_args[param.string_name]
+            executed_param_names.append(ExecutedParamName(function_value, arguments, param.tree_name, value))
+        elif param.has_default():
+            value = param.infer_default()
+            executed_param_names.append(ExecutedParamName(function_value, arguments, param.tree_name, value, is_default=True))
+        else:
+            issues.append(analysis.Error(
+                'type-error-too-few-arguments',
+                'Missing argument for parameter: ' + param.string_name,
+                param.start_pos
+            ))
+    
+    return executed_param_names, issues
 
 def get_executed_param_names(function_value, arguments):
     """
@@ -57,4 +76,19 @@ def get_executed_param_names(function_value, arguments):
     for each parameter a, b, c & d; the entries for a, c, & d will have their
     values (42, 'c' and 'd' respectively) included.
     """
-    pass
+    executed_param_names = []
+    
+    param_names = function_value.get_param_names()
+    
+    for param in param_names:
+        if param.string_name in arguments.unbound_args:
+            value = arguments.unbound_args[param.string_name]
+            executed_param_names.append(ExecutedParamName(function_value, arguments, param.tree_name, value))
+        elif param.has_default():
+            value = param.infer_default()
+            executed_param_names.append(ExecutedParamName(function_value, arguments, param.tree_name, value, is_default=True))
+        else:
+            # For missing required arguments, we create an ExecutedParamName with a None value
+            executed_param_names.append(ExecutedParamName(function_value, arguments, param.tree_name, NO_VALUES))
+    
+    return executed_param_names
