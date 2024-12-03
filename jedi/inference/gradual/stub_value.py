@@ -18,7 +18,13 @@ class StubModuleValue(ModuleValue):
         don't have code for all the child modules. At the time of writing this
         there are for example no stubs for `json.tool`.
         """
-        pass
+        non_stub_dict = {}
+        for value in self.non_stub_value_set:
+            non_stub_dict.update(value.sub_modules_dict())
+
+        stub_dict = super().sub_modules_dict()
+
+        return {**non_stub_dict, **stub_dict}
 
 class StubModuleContext(ModuleContext):
     pass
