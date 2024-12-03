@@ -22,7 +22,12 @@ class MixedTreeName(TreeNameDefinition):
         provided was already executed. In that case if something is not properly
         inferred, it should still infer from the variables it already knows.
         """
-        pass
+        values = self.parent_context.infer_node(self.tree_name)
+        if not values:
+            values = self._parent_tree_value.get_filters(origin_scope=self.parent_context.tree_node)[0].get(self.string_name)
+            if values:
+                values = ValueSet(values)
+        return values
 
 class MixedParserTreeFilter(ParserTreeFilter):
     name_class = MixedTreeName
