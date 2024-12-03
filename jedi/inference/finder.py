@@ -27,7 +27,12 @@ def filter_name(filters, name_or_str):
     Searches names that are defined in a scope (the different
     ``filters``), until a name fits.
     """
-    pass
+    string_name = name_or_str.value if isinstance(name_or_str, tree.Name) else name_or_str
+    for filter in filters:
+        names = filter.get(string_name)
+        if names:
+            return names
+    return []
 
 def check_flow_information(value, flow, search_name, pos):
     """ Try to find out the type of a variable just with the information that
@@ -38,4 +43,45 @@ def check_flow_information(value, flow, search_name, pos):
 
     ensures that `k` is a string.
     """
-    pass
+    if flow is None:
+        return None
+
+    if flow.type in ('if_stmt', 'while_stmt'):
+        potential_node = flow.children[1]
+        if potential_node != 'COLON':
+            if search_name in potential_node.get_defined_names():
+                return _check_isinstance_type(flow, search_name, value)
+
+    return None
+
+def _check_isinstance_type(flow, search_name, value):
+    try:
+        assert flow.type in ('if_stmt', 'while_stmt')
+        assert flow.children[0] == 'if'
+        assert flow.children[1].type == 'power'
+        assert flow.children[1].children[0].value == 'isinstance'
+        call = flow.children[1].children[1]
+        assert call.type == 'trailer'
+        assert call.children[0] == '('
+        params = call.children[1].children
+        assert len(params) == 3
+        assert params[0].value == search_name
+        assert params[1] == ','
+        classes = params[2]
+    except AssertionError:
+        return None
+
+    if classes.type == 'atom':
+        return _create_isinstance_value(value.inference_state, classes)
+    return None
+
+def _create_isinstance_value(inference_state, classes):
+    if classes.type == 'name':
+        return ValueSet([inference_state.builtins_module.py__getattribute__(classes.value)])
+    elif classes.type == 'atom' and classes.children[0] == '(':
+        # It's a tuple.
+        types = ValueSet()
+        for name in classes.children[1].children[::2]:
+            types |= ValueSet([inference_state.builtins_module.py__getattribute__(name.value)])
+        return types
+    return None
