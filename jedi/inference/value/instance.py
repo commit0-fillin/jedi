@@ -48,7 +48,7 @@ class AbstractInstanceValue(Value):
         self.class_value = class_value
 
     def __repr__(self):
-        return '<%s of %s>' % (self.__class__.__name__, self.class_value)
+        return '<%s of %s(%s)>' % (self.__class__.__name__, self.class_value, self._arguments)
 
 class CompiledInstance(AbstractInstanceValue):
 
@@ -64,13 +64,28 @@ class _BaseTreeInstance(AbstractInstanceValue):
         __getattribute__ methods. Stubs don't need to be checked, because
         they don't contain any logic.
         """
-        pass
+        class_value = self.class_value
+        for name in ('__getattr__', '__getattribute__'):
+            try:
+                method = class_value.py__getattribute__(name)
+            except AttributeError:
+                continue
+            else:
+                return method.execute_with_values(string_name)
+        return NO_VALUES
 
     def py__get__(self, instance, class_value):
         """
         obj may be None.
         """
-        pass
+        try:
+            descriptor = self.class_value.py__getattribute__('__get__')
+        except AttributeError:
+            return ValueSet([self])
+        else:
+            if instance is None:
+                instance = NO_VALUES
+            return descriptor.execute(instance, class_value)
 
 class TreeInstance(_BaseTreeInstance):
 
@@ -105,7 +120,7 @@ class BoundMethod(FunctionMixin, ValueWrapper):
         self._class_context = class_context
 
     def __repr__(self):
-        return '<%s: %s>' % (self.__class__.__name__, self._wrapped_value)
+        return '<%s: %s bound to %s>' % (self.__class__.__name__, self._wrapped_value, self.instance)
 
 class CompiledBoundMethod(ValueWrapper):
     pass
